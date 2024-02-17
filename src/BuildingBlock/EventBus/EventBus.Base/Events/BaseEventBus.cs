@@ -5,36 +5,37 @@ using Newtonsoft.Json;
 
 namespace EventBus.Base.Events;
 
-public class BaseEventBus : IEventBus
+public abstract class BaseEventBus : IEventBus
 {
-    private readonly IServiceProvider _serviceProvider;
-    private readonly IEventBusSubscriptionManager _eventBusSubscriptionManager;
-    private EventBusConfig _eventBusConfig;
+    public readonly IServiceProvider ServiceProvider;
+    public readonly IEventBusSubscriptionManager EventBusSubscriptionManager;
+    public EventBusConfig EventBusConfig { get; set; }
 
     public BaseEventBus(EventBusConfig eventBusConfig, IServiceProvider serviceProvider)
     {
-        _eventBusConfig = eventBusConfig;
-        _serviceProvider = serviceProvider;
-        _eventBusSubscriptionManager = new InMemoryEventBusSubscriptionManager(ProcessEventName);
+        EventBusConfig = eventBusConfig;
+        ServiceProvider = serviceProvider;
+        EventBusSubscriptionManager = new InMemoryEventBusSubscriptionManager(ProcessEventName);
     }
 
     public virtual string ProcessEventName(string eventName)
     {
-        if (_eventBusConfig.DeleteEventPrefix)
-            eventName = eventName.TrimStart([.. _eventBusConfig.EventNamePrefix]);
+        if (EventBusConfig.DeleteEventPrefix)
+            eventName = eventName.TrimStart([.. EventBusConfig.EventNamePrefix]);
 
-        if (_eventBusConfig.DeleteEventSuffix)
-            eventName = eventName.TrimEnd([.. _eventBusConfig.EventNameSuffix]);
+        if (EventBusConfig.DeleteEventSuffix)
+            eventName = eventName.TrimEnd([.. EventBusConfig.EventNameSuffix]);
 
         return eventName;
     }
 
     public virtual string GetSubName(string eventName) =>
-        $"{_eventBusConfig.SubscriberClientAppName}.{ProcessEventName(eventName)}";
+        $"{EventBusConfig.SubscriberClientAppName}.{ProcessEventName(eventName)}";
 
     public virtual void Dispose()
     {
-        _eventBusConfig = null!;
+        EventBusConfig = null!;
+        EventBusSubscriptionManager.Clear();
     }
 
     public async Task<bool> ProcessEvent(string eventName, string message)
@@ -43,20 +44,20 @@ public class BaseEventBus : IEventBus
 
         bool processed = false;
 
-        if (_eventBusSubscriptionManager.HasSubscriptionsForEvent(eventName))
+        if (EventBusSubscriptionManager.HasSubscriptionsForEvent(eventName))
         {
-            IEnumerable<SubscriptionInfo> subscriptions = _eventBusSubscriptionManager.GetHandlersForEvent(eventName);
+            IEnumerable<SubscriptionInfo> subscriptions = EventBusSubscriptionManager.GetHandlersForEvent(eventName);
 
-            using AsyncServiceScope scope = _serviceProvider.CreateAsyncScope();
+            using AsyncServiceScope scope = ServiceProvider.CreateAsyncScope();
 
             foreach (SubscriptionInfo subscription in subscriptions)
             {
-                object? handler = _serviceProvider.GetService(subscription.HandlerType);
+                object? handler = ServiceProvider.GetService(subscription.HandlerType);
                 if (handler is null)
                     continue;
 
-                Type eventType = _eventBusSubscriptionManager.GetEventTypeByName(
-                    $"{_eventBusConfig.EventNamePrefix}{eventName}{_eventBusConfig.EventNameSuffix}"
+                Type eventType = EventBusSubscriptionManager.GetEventTypeByName(
+                    $"{EventBusConfig.EventNamePrefix}{eventName}{EventBusConfig.EventNameSuffix}"
                 )!;
                 object integrationEvent = JsonConvert.DeserializeObject(message, eventType)!;
 
@@ -70,22 +71,13 @@ public class BaseEventBus : IEventBus
         return processed;
     }
 
-    public void Publish(IntegrationEvent @event)
-    {
-        throw new NotImplementedException();
-    }
+    public abstract void Publish(IntegrationEvent @event);
 
-    public void Subscribe<T, TH>()
+    public abstract void Subscribe<T, TH>()
         where T : IntegrationEvent
-        where TH : IIntegrationEventHandler<T>
-    {
-        throw new NotImplementedException();
-    }
+        where TH : IIntegrationEventHandler<T>;
 
-    public void Unsubscribe<T, TH>()
+    public abstract void Unsubscribe<T, TH>()
         where T : IntegrationEvent
-        where TH : IIntegrationEventHandler<T>
-    {
-        throw new NotImplementedException();
-    }
+        where TH : IIntegrationEventHandler<T>;
 }
